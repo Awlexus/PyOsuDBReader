@@ -13,6 +13,12 @@ class BasicDbReader:
             raise FileNotFoundError('Could not find from the specified file "%s"' % file)
         self.file = open(file, mode='rb')
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.file.close()
+
     def read_byte(self):
         """
         Read one Byte from the database-file
