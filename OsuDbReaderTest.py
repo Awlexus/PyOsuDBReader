@@ -1,10 +1,11 @@
 import pprint
 
-from .pyosudbreader import OsuDbReader
+from pyosudbreader import OsuDbReader
 
 with OsuDbReader() as db:
     beatmaps = db.read_all_beatmaps()
-    print('version: %i\n'
+    print(
+        'version: %i\n'
           'folder_count: %i\n'
           'unlocked: %s\n'
           'date_unlocked: %s\n'

@@ -1,6 +1,6 @@
 import pprint
 
-from .pyosudbreader import CollectionsDbReader
+from pyosudbreader import CollectionsDbReader
 
 with CollectionsDbReader() as db:
     collections = db.read_all_collections()

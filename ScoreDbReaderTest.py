@@ -1,6 +1,6 @@
 import pprint
 
-from .pyosudbreader import ScoreDbReader
+from pyosudbreader import ScoreDbReader
 
 with ScoreDbReader() as db:
     beatmaps = db.read_all_beatmaps()
