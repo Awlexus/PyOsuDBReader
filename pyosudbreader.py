@@ -89,16 +89,9 @@ class BasicDbReader:
         Read a string (variable) from the database-file
         :return:
         """
-        read = ''
-        try:
-            byte = self.read_byte()
-            if byte == 0x0b:
-                len = self.read_uleb128()
-                read = self.file.read(len)
-                return read.decode('utf8')
-        except UnicodeDecodeError as e:
-            print(len, read)
-            raise e
+        if self.read_byte() == 0x0b:
+            len = self.read_uleb128()
+            return self.file.read(len).decode('utf8')
 
     def read_datetime(self):
         """
@@ -273,6 +266,9 @@ class OsuDbReader(BasicDbReader):
         font = self.read_string()  # Why do you even need this -_-
         unplayed = self.read_boolean()
         last_played = self.read_long()
+        osz2 = self.read_boolean()
+        folder_name = self.read_string()
+        last_checked = self.read_long()
         ignore_map_sound = self.read_boolean()
         ignore_map_skin = self.read_boolean()
         disable_storyboard = self.read_boolean()
@@ -328,6 +324,7 @@ class OsuDbReader(BasicDbReader):
             'font': font,
             'unplayed': unplayed,
             'last_played': last_played,
+            'osz2': osz2,
             'ignore_map_sound': ignore_map_sound,
             'ignore_map_skin': ignore_map_skin,
             'disable_storyboard': disable_storyboard,
@@ -339,7 +336,7 @@ class OsuDbReader(BasicDbReader):
 
     def read_all_beatmaps(self):
         beatmaps = []
-        for _ in range(self.num_beatmaps):
+        for i in range(self.num_beatmaps):
             beatmaps.append(self.read_beatmap())
         return beatmaps
 
