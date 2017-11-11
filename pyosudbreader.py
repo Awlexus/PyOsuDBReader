@@ -89,10 +89,16 @@ class BasicDbReader:
         Read a string (variable) from the database-file
         :return:
         """
-        byte = self.read_byte()
-        if byte == 0x0b:
-            len = self.read_uleb128()
-            return self.file.read(len).decode('utf8')
+        read = ''
+        try:
+            byte = self.read_byte()
+            if byte == 0x0b:
+                len = self.read_uleb128()
+                read = self.file.read(len)
+                return read.decode('utf8')
+        except UnicodeDecodeError as e:
+            print(len, read)
+            raise e
 
     def read_datetime(self):
         """
@@ -147,6 +153,7 @@ class CollectionsDbReader(BasicDbReader):
         collections = []
         for _ in range(self.num_collections):
             collections.append(self.read_collection())
+        return collections
 
 
 class OsuDbReader(BasicDbReader):
@@ -330,6 +337,12 @@ class OsuDbReader(BasicDbReader):
             'mania_scroll_speed': mania_scroll_speed
         }
 
+    def read_all_beatmaps(self):
+        beatmaps = []
+        for _ in range(self.num_beatmaps):
+            beatmaps.append(self.read_beatmap())
+        return beatmaps
+
 
 class ScoreDbReader(BasicDbReader):
     def __init__(self, file=None):
@@ -338,11 +351,11 @@ class ScoreDbReader(BasicDbReader):
             file = os.path.join(self.get_default_osu_path(), 'scores.db')
         super(ScoreDbReader, self).__init__(file)
         self.version = self.read_int()
-        self.num_maps = self.read_int()
+        self.num_beatmaps = self.read_int()
         self._maps_read = 0
 
     def read_beatmap(self):
-        if self._maps_read >= self.num_maps:
+        if self._maps_read >= self.num_beatmaps:
             return
         md5 = self.read_string()
         score_count = self.read_int()
@@ -399,3 +412,9 @@ class ScoreDbReader(BasicDbReader):
             'unknown_minus_1': unknown_minus_1,
             'online_score_id': online_score_id
         }
+
+    def read_all_beatmaps(self):
+        beatmaps = []
+        for _ in range(self.num_beatmaps):
+            beatmaps.append(self.read_beatmap())
+        return beatmaps
