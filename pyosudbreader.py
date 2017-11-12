@@ -3,11 +3,27 @@ import platform
 import struct
 
 
+def get_default_osu_path():
+    osu_path = ''
+    system = platform.system()
+
+    if system == 'Windows':
+        osu_path = os.path.join(os.getenv('LOCALAPPDATA'), 'osu!')  # Localapp
+        if not os.path.exists(osu_path):
+            osu_path = os.path.join(os.getenv('ProgramW6432'), 'osu!')  # "C:\Programm Files"
+    elif system == 'Mac':
+        osu_path = '/Applications/osu!.app/Contents/Resources/drive_c/Program Files/osu!/'
+
+    if osu_path and os.path.exists(osu_path):
+        return osu_path
+
+
 class BasicDbReader:
     def __init__(self, file):
         """
         Initializes a BasicDbReader on the given file.
-        :param file:
+
+        :param file: path to the db file
         """
         if not file or not os.path.exists(file):
             raise FileNotFoundError('Could not find from the specified file "%s"' % file)
@@ -22,36 +38,30 @@ class BasicDbReader:
     def read_byte(self):
         """
         Read one Byte from the database-file
-        :param file:
-        :return:
         """
         return int.from_bytes(self.file.read(1), byteorder='little')
 
     def read_short(self):
         """
         Read a Short (2 Byte) from the database-file
-        :return:
         """
         return int.from_bytes(self.file.read(2), byteorder='little')
 
     def read_int(self):
         """
         Read an Integer (4 Bytes) from the database-file
-        :return:
         """
         return int.from_bytes(self.file.read(4), byteorder='little')
 
     def read_long(self):
         """
         Read a Long (8 bytes) from the database-file
-        :return:
         """
         return int.from_bytes(self.file.read(8), byteorder='little')
 
     def read_uleb128(self):
         """
         Read a ULEB128 (variable) from the database-file
-        :return:
         """
         result = 0
         shift = 0
@@ -66,67 +76,54 @@ class BasicDbReader:
     def read_single(self):
         """
         Read a Single (4 bytes) from the database-file
-        :return:
         """
-        return struct.unpack('f', self.file.read(4))
+        return struct.unpack('f', self.file.read(4))[0]
 
     def read_double(self):
         """
         Read a Double (8 bytes) from the database-file
-        :return:
         """
-        return struct.unpack('d', self.file.read(8))
+        return struct.unpack('d', self.file.read(8))[0]
 
     def read_boolean(self):
         """
         Read a Boolean (1 byte) from the database-file
-        :return:
         """
         return self.read_byte() != 0
 
     def read_string(self):
         """
         Read a string (variable) from the database-file
-        :return:
         """
         if self.read_byte() == 0x0b:
-            len = self.read_uleb128()
-            return self.file.read(len).decode('utf8')
+            length = self.read_uleb128()
+            return self.file.read(length).decode('utf8')
 
     def read_datetime(self):
         """
         Read a Datetime from the database-file
-        :return:
         """
         return self.read_long()
-
-    def get_default_osu_path(self):
-        osu_path = ''
-        system = platform.system()
-
-        if system == 'Windows':
-            osu_path = os.path.join(os.getenv('LOCALAPPDATA'), 'osu!')  # Localapp
-            if not os.path.exists(osu_path):
-                osu_path = os.path.join(os.getenv('ProgramW6432'), 'osu!')  # "C:\Programm Files"
-        elif system == 'Mac':
-            osu_path = '/Applications/osu!.app/Contents/Resources/drive_c/Program Files/osu!/'
-
-        if osu_path and os.path.exists(osu_path):
-            return osu_path
 
 
 class CollectionsDbReader(BasicDbReader):
     def __init__(self, file=None):
         # Tries to use a default file if the file was not specified or not found
         if not file or not os.path.exists(file):
-            file = os.path.join(self.get_default_osu_path(), 'collection.db')
+            file = os.path.join(get_default_osu_path(), 'collection.db')
         super(CollectionsDbReader, self).__init__(file)
         self.version = self.read_int()
         self.num_collections = self.read_int()
-        self._collections_read = 0
+        self.collections = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.file.close()
 
     def read_collection(self):
-        if self._collections_read >= self.num_collections:
+        if len(self.collections) >= self.num_collections:
             return
         name = self.read_string()
         num_maps = self.read_int()
@@ -135,25 +132,21 @@ class CollectionsDbReader(BasicDbReader):
         for _ in range(num_maps):
             md5_hashes.append(self.read_string())
 
-        self._collections_read += 1
-        return {
-            'name': name,
-            'num_maps': num_maps,
-            'md5_hashes': md5_hashes
-        }
+        collection = {'name': name, 'num_maps': num_maps, 'md5_hashes': md5_hashes}
+        self.collections.append(collection)
+        return collection
 
     def read_all_collections(self):
-        collections = []
-        for _ in range(self.num_collections):
-            collections.append(self.read_collection())
-        return collections
+        for _ in range(self.num_collections - len(self.collections)):
+            self.read_collection()
+        return self.collections
 
 
 class OsuDbReader(BasicDbReader):
     def __init__(self, file=None):
         # Tries to use a default file if the file was not specified or not found
         if not file or not os.path.exists(file):
-            file = os.path.join(self.get_default_osu_path(), 'osu!.db')
+            file = os.path.join(get_default_osu_path(), 'osu!.db')
         super(OsuDbReader, self).__init__(file)
         self.version = self.read_int()
         self.folder_count = self.read_int()
@@ -161,24 +154,34 @@ class OsuDbReader(BasicDbReader):
         self.date_unlocked = self.read_datetime()
         self.player = self.read_string()
         self.num_beatmaps = self.read_int()
-        self._beatmap_read = 0
+        self.beatmaps = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.file.close()
 
     def read_int_double_pair(self):
         """
         Read an int-double-pair (14 bytes) from the database-file
-        :return:
+
+        :return: a tuple with the int and the double
         """
-        if self.read_byte() == 0x08:
-            first = self.read_int()
-            if self.read_byte() != 0x0d:
-                return first
-            second = self.read_double()
-            return first, second
+        if self.read_byte() != 0x08:
+            raise Exception('Error while parsing db.')
+
+        first = self.read_int()
+        if self.read_byte() != 0x0d:
+            raise Exception('Error while parsing db.')
+        second = self.read_double()
+        return first, second
 
     def _read_timingpoint(self):
         """
         Read a Timingpoint (17 bytes) from the database-file
-        :return:
+
+        :return: a dict containing bpm, offset and whether the timingpoint is inherited
         """
         bpm = self.read_double()
         offset = self.read_double()
@@ -193,9 +196,10 @@ class OsuDbReader(BasicDbReader):
     def read_beatmap(self):
         """
         Read one Beatmap from the database-file
-        :return:
+
+        :return: a (big) dict representing the beatmap
         """
-        if self._beatmap_read >= self.num_beatmaps:
+        if len(self.beatmaps) >= self.num_beatmaps:
             return
         entry_size = self.read_int()
         artist = self.read_string()
@@ -219,26 +223,30 @@ class OsuDbReader(BasicDbReader):
         slider_velocity = self.read_double()
 
         # Difficulties in respect with the selected mod
-        difficulties_std = []
-        difficulties_taiko = []
-        difficulties_ctb = []
-        difficulties_mania = []
+        difficulties_std = {}
+        difficulties_taiko = {}
+        difficulties_ctb = {}
+        difficulties_mania = {}
 
         length = self.read_int()
         for _ in range(length):
-            difficulties_std.append(self.read_int_double_pair())
+            mode, diff = self.read_int_double_pair()
+            difficulties_std[mode] = diff
 
         length = self.read_int()
         for _ in range(length):
-            difficulties_taiko.append(self.read_int_double_pair())
+            mode, diff = self.read_int_double_pair()
+            difficulties_taiko[mode] = diff
 
         length = self.read_int()
         for _ in range(length):
-            difficulties_ctb.append(self.read_int_double_pair())
+            mode, diff = self.read_int_double_pair()
+            difficulties_ctb[mode] = diff
 
         length = self.read_int()
         for _ in range(length):
-            difficulties_mania.append(self.read_int_double_pair())
+            mode, diff = self.read_int_double_pair()
+            difficulties_mania[mode] = diff
 
         drain_time = self.read_int()
         total_time = self.read_int()
@@ -277,82 +285,52 @@ class OsuDbReader(BasicDbReader):
         last_modification_time_2 = self.read_int()  # I swear we had this already
         mania_scroll_speed = self.read_byte()
 
-        self._beatmap_read += 1
         # Don't worry, I used multiply cursors to do within a minute
-        return {
-            'entry_size': entry_size,
-            'artist': artist,
-            'artist_unicode': artist_unicode,
-            'title': title,
-            'title_unicode': title_unicode,
-            'creator': creator,
-            'difficulty': difficulty,
-            'audio_file': audio_file,
-            'md5': md5,
-            'osu_file': osu_file,
-            'ranked_status': ranked_status,
-            'circle_count': circle_count,
-            'slider_count': slider_count,
-            'spinner_count': spinner_count,
-            'last_modification_time': last_modification_time,
-            'ar': ar,
-            'cs': cs,
-            'hp': hp,
-            'od': od,
-            'slider_velocity': slider_velocity,
-            'difficulties_std': difficulties_std,
-            'difficulties_taiko': difficulties_taiko,
-            'difficulties_ctb': difficulties_ctb,
-            'difficulties_mania': difficulties_mania,
-            'drain_time': drain_time,
-            'total_time': total_time,
-            'preview_time': preview_time,
-            'timing_points': timing_points,
-            'map_id': map_id,
-            'set_id': set_id,
-            'thread_id': thread_id,
-            'grade_std': grade_std,
-            'grade_taiko': grade_taiko,
-            'grade_ctb': grade_ctb,
-            'grade_mania': grade_mania,
-            'local_offset': local_offset,
-            'stack_leniency': stack_leniency,
-            'game_mode': game_mode,
-            'song_source': song_source,
-            'song_tags': song_tags,
-            'online_offset': online_offset,
-            'font': font,
-            'unplayed': unplayed,
-            'last_played': last_played,
-            'osz2': osz2,
-            'ignore_map_sound': ignore_map_sound,
-            'ignore_map_skin': ignore_map_skin,
-            'disable_storyboard': disable_storyboard,
-            'disable_video': disable_video,
-            'visual_override': visual_override,
-            'last_modification_time_2': last_modification_time_2,
-            'mania_scroll_speed': mania_scroll_speed
-        }
+        beatmap = {'entry_size': entry_size, 'artist': artist, 'artist_unicode': artist_unicode, 'title': title,
+                   'title_unicode': title_unicode, 'creator': creator, 'difficulty': difficulty,
+                   'audio_file': audio_file, 'md5': md5, 'osu_file': osu_file, 'ranked_status': ranked_status,
+                   'circle_count': circle_count, 'slider_count': slider_count, 'spinner_count': spinner_count,
+                   'last_modification_time': last_modification_time, 'ar': ar, 'cs': cs, 'hp': hp, 'od': od,
+                   'slider_velocity': slider_velocity, 'difficulties_std': difficulties_std,
+                   'difficulties_taiko': difficulties_taiko, 'difficulties_ctb': difficulties_ctb,
+                   'difficulties_mania': difficulties_mania, 'drain_time': drain_time, 'total_time': total_time,
+                   'preview_time': preview_time, 'timing_points': timing_points, 'map_id': map_id, 'set_id': set_id,
+                   'thread_id': thread_id, 'grade_std': grade_std, 'grade_taiko': grade_taiko, 'grade_ctb': grade_ctb,
+                   'grade_mania': grade_mania, 'local_offset': local_offset, 'stack_leniency': stack_leniency,
+                   'game_mode': game_mode, 'song_source': song_source, 'song_tags': song_tags,
+                   'online_offset': online_offset, 'font': font, 'unplayed': unplayed, 'last_played': last_played,
+                   'osz2': osz2, 'folder_name': folder_name, 'last_checkee': last_checked,
+                   'ignore_map_sound': ignore_map_sound, 'ignore_map_skin': ignore_map_skin,
+                   'disable_storyboard': disable_storyboard, 'disable_video': disable_video,
+                   'visual_override': visual_override, 'last_modification_time_2': last_modification_time_2,
+                   'mania_scroll_speed': mania_scroll_speed}
+        self.beatmaps.append(beatmap)
+        return beatmap
 
     def read_all_beatmaps(self):
-        beatmaps = []
-        for i in range(self.num_beatmaps):
-            beatmaps.append(self.read_beatmap())
-        return beatmaps
+        for i in range(self.num_beatmaps - len(self.beatmaps)):
+            self.read_beatmap()
+        return self.beatmaps
 
 
 class ScoreDbReader(BasicDbReader):
     def __init__(self, file=None):
         # Tries to use a default file if the file was not specified or not found
         if not file or not os.path.exists(file):
-            file = os.path.join(self.get_default_osu_path(), 'scores.db')
+            file = os.path.join(get_default_osu_path(), 'scores.db')
         super(ScoreDbReader, self).__init__(file)
         self.version = self.read_int()
         self.num_beatmaps = self.read_int()
-        self._maps_read = 0
+        self.beatmaps = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.file.close()
 
     def read_beatmap(self):
-        if self._maps_read >= self.num_beatmaps:
+        if len(self.beatmaps) >= self.num_beatmaps:
             return
         md5 = self.read_string()
         score_count = self.read_int()
@@ -360,12 +338,9 @@ class ScoreDbReader(BasicDbReader):
         for _ in range(score_count):
             scores.append(self._read_score())
 
-        self._maps_read += 1
-        return {
-            'md5': md5,
-            'score_count': score_count,
-            'scores': scores
-        }
+        beatmap = {'md5': md5, 'score_count': score_count, 'scores': scores}
+        self.beatmaps.append(beatmap)
+        return beatmap
 
     def _read_score(self):
         game_mode = self.read_byte()
