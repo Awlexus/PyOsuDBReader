@@ -201,7 +201,10 @@ class OsuDbReader(BasicDbReader):
         """
         if len(self.beatmaps) >= self.num_beatmaps:
             return
-        entry_size = self.read_int()
+        if(self.version<=20191106):
+            entry_size = self.read_int()
+        else:
+            entry_size = None
         artist = self.read_string()
         artist_unicode = self.read_string()
         title = self.read_string()
